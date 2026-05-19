@@ -38,19 +38,25 @@ jobs:
           # Accept licenses once up-front
           yes | "$SDKM" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
 
-          # Install android-33 (full platform with a valid android.jar).
+          # Install android-33 (full platform, valid android.jar, within AGP 7.4.1
+          # tested range). androiddeployqt auto-selects the numerically highest
+          # platform, so we must ensure android-33 is the only available option.
           "$SDKM" --sdk_root="$SDK" "platforms;android-33"
 
-          # Remove all extension SDKs (android-N-extM). Extension platforms only
-          # contain the delta APIs; their android.jar is not a full resource table
-          # and aapt2 crashes: "RES_TABLE_TYPE_TYPE entry offsets overlap".
-          # androiddeployqt auto-selects the numerically highest platform, so
-          # removing extension entries lets it fall through to android-33.
-          find "$SDK/platforms" -maxdepth 1 -name 'android-*-ext*' -type d \
-               -print -exec rm -rf {} +  2>/dev/null || true
-
-          echo "Available platforms after cleanup:"
-          ls "$SDK/platforms/"
+          # Remove every platform with API level > 33 (both full platforms like
+          # android-37 and extension SDKs like android-36-ext19). Their android.jar
+          # is either broken or causes AGP 7.4.1 lint dependency resolution to fail.
+          echo "Platforms before cleanup:"; ls "$SDK/platforms/"
+          find "$SDK/platforms" -maxdepth 1 -mindepth 1 -type d | while read -r dir; do
+            name=$(basename "$dir")
+            # Extract the leading API number (handles both android-37 and android-36-ext19)
+            api=$(echo "$name" | grep -oP '(?<=android-)\d+' | head -1)
+            if [ -n "$api" ] && [ "$api" -gt 33 ]; then
+              echo "  Removing $name (API $api > 33)"
+              rm -rf "$dir"
+            fi
+          done
+          echo "Platforms after cleanup:"; ls "$SDK/platforms/"
 
           # Locate the highest available NDK
           NDK=$(find "$SDK/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
