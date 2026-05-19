@@ -53,6 +53,12 @@ set(SOURCES
 
 qt_add_executable(wp-desktop-client ${SOURCES})
 
+# Hide the Windows console window — sets /SUBSYSTEM:WINDOWS so the app
+# launches as a pure GUI process with no terminal attached.
+if(WIN32)
+    set_target_properties(wp-desktop-client PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
 # ---- macOS bundle ----
 if(APPLE AND NOT IOS)
     set_target_properties(wp-desktop-client PROPERTIES
