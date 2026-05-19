@@ -123,6 +123,28 @@ jobs:
           echo "Found APK: $APK  ($(du -sh "$APK" | cut -f1))"
           cp "$APK" dist/WPDesktop-Android.apk
 
+      - name: Sign APK for sideloading
+        run: |
+          # Generate an ephemeral keystore — fine for personal sideloading.
+          # (Each CI run gets a unique key; use a stable keystore secret for
+          #  Play Store distribution.)
+          keytool -genkeypair -v \
+            -keystore sideload.keystore -alias wpdesktop \
+            -keyalg RSA -keysize 2048 -validity 3650 \
+            -dname "CN=WP Desktop, O=Dev, C=US" \
+            -storepass sideload -keypass sideload -noprompt
+
+          APKSIGNER=$(find "$ANDROID_SDK_ROOT/build-tools" -name "apksigner" \
+                      -type f | sort -V | tail -1)
+          "$APKSIGNER" sign \
+            --ks sideload.keystore --ks-key-alias wpdesktop \
+            --ks-pass pass:sideload --key-pass pass:sideload \
+            dist/WPDesktop-Android.apk
+
+          "$APKSIGNER" verify dist/WPDesktop-Android.apk \
+            && echo "Signature verified OK"
+          rm sideload.keystore
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
