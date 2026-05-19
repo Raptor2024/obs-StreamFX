@@ -8,6 +8,7 @@ on:
 
 env:
   QT_VERSION: '6.6.3'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
