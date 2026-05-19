@@ -8,8 +8,6 @@ on:
 
 env:
   QT_VERSION: '6.6.3'
-  ANDROID_NDK_VERSION: '26.3.11579264'
-  ANDROID_MIN_SDK: '26'
 
 jobs:
   build-android:
@@ -25,15 +23,20 @@ jobs:
           java-version: '17'
           distribution: temurin
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
+      - name: Locate pre-installed NDK
         run: |
-          sdkmanager "ndk;${{ env.ANDROID_NDK_VERSION }}"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+          # GitHub ubuntu-22.04 runners ship with Android SDK + several NDK versions.
+          # Pick the highest available NDK 25.x or 26.x without installing anything.
+          NDK_PATH=$(ls -d "$ANDROID_SDK_ROOT/ndk/"* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$NDK_PATH" ]; then
+            echo "No NDK found — installing 25.2.9519653"
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;25.2.9519653"
+            NDK_PATH="$ANDROID_SDK_ROOT/ndk/25.2.9519653"
+          fi
+          echo "Using NDK: $NDK_PATH"
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
 
-      # Install Qt for the host (provides moc / rcc / uic build tools)
+      # Step 1 — host Qt (provides moc / rcc / uic used during cross-compilation)
       - name: Install Qt — host (Linux desktop)
         uses: jurplel/install-qt-action@v3
         with:
@@ -42,14 +45,14 @@ jobs:
           target: desktop
           arch: gcc_64
           dir: ${{ runner.temp }}/Qt
-          cache: true
-          set-env: false   # don't override PATH — the android install does that
+          cache: false   # avoid flaky cache-service failures
 
       - name: Save host Qt path
         run: |
-          echo "QT_HOST_PATH=${{ runner.temp }}/Qt/Qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
+          echo "QT_HOST_PATH=$QT_ROOT_DIR" >> $GITHUB_ENV
+          echo "Host Qt at: $QT_ROOT_DIR"
 
-      # Install Qt for Android (arm64-v8a target libraries)
+      # Step 2 — Android target Qt (arm64-v8a libraries)
       - name: Install Qt — Android arm64-v8a
         uses: jurplel/install-qt-action@v3
         with:
@@ -59,18 +62,26 @@ jobs:
           arch: android_arm64_v8a
           modules: qtmultimedia
           dir: ${{ runner.temp }}/Qt
-          cache: true
+          cache: false
+
+      - name: Verify paths
+        run: |
+          echo "Qt6_DIR:        $Qt6_DIR"
+          echo "QT_ROOT_DIR:    $QT_ROOT_DIR"
+          echo "QT_HOST_PATH:   $QT_HOST_PATH"
+          echo "ANDROID_SDK:    $ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK:    $ANDROID_NDK_ROOT"
+          ls "$Qt6_DIR/qt.toolchain.cmake" && echo "Toolchain: OK"
 
       - name: Configure CMake for Android
         run: |
-          QT_ANDROID=${{ runner.temp }}/Qt/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
           cmake -S wordpress-client -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$QT_ANDROID/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="$Qt6_DIR/qt.toolchain.cmake" \
             -DQT_HOST_PATH="$QT_HOST_PATH" \
             -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
             -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT" \
             -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_SDK }} \
+            -DANDROID_PLATFORM=android-26 \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build APK
@@ -79,9 +90,9 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p dist
-          # Qt places the APK under build/android-build/
-          find build -name "*.apk" | head -1 | xargs -I{} cp {} dist/WPDesktop-Android.apk
-          echo "APK size: $(du -sh dist/WPDesktop-Android.apk)"
+          APK=$(find build -name "*.apk" | head -1)
+          echo "Found APK: $APK  ($(du -sh "$APK" | cut -f1))"
+          cp "$APK" dist/WPDesktop-Android.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

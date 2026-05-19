@@ -45,7 +45,7 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           modules: qtmultimedia
           dir: ${{ runner.temp }}/Qt
-          cache: true
+          cache: false
 
       # ---- System dependencies ----
 

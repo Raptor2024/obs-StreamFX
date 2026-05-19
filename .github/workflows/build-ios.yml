@@ -29,7 +29,7 @@ jobs:
           target: desktop
           arch: clang_64
           dir: ${{ runner.temp }}/Qt
-          cache: true
+          cache: false
           set-env: false
 
       # Install Qt for iOS
@@ -41,7 +41,7 @@ jobs:
           target: ios
           modules: qtmultimedia
           dir: ${{ runner.temp }}/Qt
-          cache: true
+          cache: false
 
       - name: Configure CMake for iOS
         run: |
