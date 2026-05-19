@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QTextDocument>
 #include <QVBoxLayout>
 
 namespace wpclient {
@@ -96,7 +97,10 @@ void PostList::appendPosts(const std::vector<WpPost>& posts)
         int row = _table->rowCount();
         _table->insertRow(row);
 
-        _table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(p.title)));
+        // WordPress REST API returns HTML-encoded titles (e.g. &#8217; for ')
+        QTextDocument doc;
+        doc.setHtml(QString::fromStdString(p.title));
+        _table->setItem(row, 0, new QTableWidgetItem(doc.toPlainText()));
         _table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(p.status)));
 
         // Show a friendly date

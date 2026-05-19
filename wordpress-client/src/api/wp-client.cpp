@@ -37,6 +37,9 @@ QNetworkRequest WpClient::make_request(const QString& path) const
     req.setRawHeader("Accept", "application/json");
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
+    // Qt's HTTP/2 stack drops the Authorization header when the server
+    // returns a 401 challenge instead of retrying — force HTTP/1.1.
+    req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     return req;
 }
 
