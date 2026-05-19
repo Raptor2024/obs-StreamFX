@@ -59,6 +59,7 @@ jobs:
             libxkbcommon-dev libgles2-mesa-dev libegl1-mesa-dev \
             libgl1-mesa-dev libvulkan-dev \
             libpulse-dev libasound2-dev \
+            libxcb-cursor0 \
             fuse libfuse2 imagemagick
 
       - name: System deps (macOS)
