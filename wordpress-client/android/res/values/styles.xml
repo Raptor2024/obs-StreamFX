@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Qt requires windowBackground=@null and NoTitleBar parent so the Qt
+         surface renders edge-to-edge without a system title bar overlay. -->
+    <style name="AppTheme" parent="android:Theme.NoTitleBar">
+        <item name="android:windowBackground">@null</item>
+    </style>
+</resources>
