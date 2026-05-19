@@ -1,0 +1,91 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: ['claude/wordpress-desktop-app-jiEaE', 'main']
+    paths: ['wordpress-client/**', '.github/workflows/build-android.yml']
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.6.3'
+  ANDROID_NDK_VERSION: '26.3.11579264'
+  ANDROID_MIN_SDK: '26'
+
+jobs:
+  build-android:
+    name: Android arm64-v8a
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager "ndk;${{ env.ANDROID_NDK_VERSION }}"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
+
+      # Install Qt for the host (provides moc / rcc / uic build tools)
+      - name: Install Qt — host (Linux desktop)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: gcc_64
+          dir: ${{ runner.temp }}/Qt
+          cache: true
+          set-env: false   # don't override PATH — the android install does that
+
+      - name: Save host Qt path
+        run: |
+          echo "QT_HOST_PATH=${{ runner.temp }}/Qt/Qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
+
+      # Install Qt for Android (arm64-v8a target libraries)
+      - name: Install Qt — Android arm64-v8a
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: android
+          arch: android_arm64_v8a
+          modules: qtmultimedia
+          dir: ${{ runner.temp }}/Qt
+          cache: true
+
+      - name: Configure CMake for Android
+        run: |
+          QT_ANDROID=${{ runner.temp }}/Qt/Qt/${{ env.QT_VERSION }}/android_arm64_v8a
+          cmake -S wordpress-client -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$QT_ANDROID/lib/cmake/Qt6/qt.toolchain.cmake" \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
+            -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-${{ env.ANDROID_MIN_SDK }} \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build APK
+        run: cmake --build build --target apk --parallel
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          # Qt places the APK under build/android-build/
+          find build -name "*.apk" | head -1 | xargs -I{} cp {} dist/WPDesktop-Android.apk
+          echo "APK size: $(du -sh dist/WPDesktop-Android.apk)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WPDesktop-Android
+          path: dist/WPDesktop-Android.apk
+          retention-days: 30

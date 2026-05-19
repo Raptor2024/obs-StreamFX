@@ -5,8 +5,10 @@
 #include <string>
 #include <vector>
 
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QObject>
-#include <QThreadPool>
 
 namespace wpclient {
 
@@ -27,29 +29,20 @@ namespace wpclient {
     using CatsCallback   = ResultCallback<std::vector<WpCategory>>;
     using TagsCallback   = ResultCallback<std::vector<WpTag>>;
 
-    // All public methods dispatch work onto a thread pool and invoke the callback
-    // on the calling thread via Qt's queued connection mechanism.
     class WpClient : public QObject {
         Q_OBJECT
 
     public:
         explicit WpClient(WpSite site, QObject* parent = nullptr);
 
-        // Verify credentials — calls /wp-json/wp/v2/users/me
         void testConnection(ResultCallback<std::string> callback);
-
-        // Posts
         void fetchPosts(const std::string& status, int page, PostsCallback callback);
         void fetchPost(int64_t id, PostCallback callback);
         void createPost(const WpPost& post, PostCallback callback);
         void updatePost(const WpPost& post, PostCallback callback);
         void trashPost(int64_t id, VoidCallback callback);
-
-        // Media
         void fetchMedia(int page, MediasCallback callback);
         void uploadMedia(const std::string& file_path, MediaCallback callback);
-
-        // Taxonomy
         void fetchCategories(CatsCallback callback);
         void fetchTags(TagsCallback callback);
 
@@ -57,26 +50,18 @@ namespace wpclient {
         void networkError(QString message);
 
     private:
-        WpSite      _site;
-        std::string _auth_header; // "Basic <base64>"
+        WpSite                _site;
+        QByteArray            _auth_header; // "Basic <base64>"
+        QNetworkAccessManager _nam;
 
-        std::string base_url() const;
+        QString        base_url() const;
+        QNetworkRequest make_request(const QString& path) const;
 
-        // Low-level helpers (run on worker thread)
-        struct Response {
-            int         status = 0;
-            std::string body;
-            std::string curl_error;
-        };
+        // Calls fn(http_status, body) when the reply finishes; handles transport errors.
+        using ReplyHandler = std::function<void(int status, const QByteArray& body)>;
+        void handle(QNetworkReply* reply, ReplyHandler fn);
 
-        Response get(const std::string& path);
-        Response post_json(const std::string& path, const std::string& json_body);
-        Response put_json(const std::string& path, const std::string& json_body);
-        Response delete_req(const std::string& path);
-        Response post_multipart(const std::string& path, const std::string& file_path,
-                                const std::string& mime_type, const std::string& filename);
-
-        static ApiError parse_error(const Response& r);
+        static ApiError parse_wp_error(int status, const QByteArray& body);
     };
 
 } // namespace wpclient

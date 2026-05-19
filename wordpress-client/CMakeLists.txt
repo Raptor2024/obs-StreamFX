@@ -9,22 +9,31 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets)
-find_package(CURL REQUIRED)
+# Qt modules — Network replaces libcurl; works on all platforms including Android/iOS
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network Multimedia MultimediaWidgets)
 
-# nlohmann/json: prefer vendored copy from parent repo, else find installed
+# nlohmann/json — vendored → system → FetchContent (works on all platforms)
+include(FetchContent)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../third-party/nlohmann-json/single_include/nlohmann/json.hpp")
-    set(JSON_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third-party/nlohmann-json/single_include")
-    message(STATUS "Using vendored nlohmann/json")
-elseif(EXISTS "/usr/include/nlohmann/json.hpp")
-    set(JSON_INCLUDE_DIR "/usr/include")
-    message(STATUS "Using system nlohmann/json")
+    add_library(nlohmann_json INTERFACE)
+    target_include_directories(nlohmann_json INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../third-party/nlohmann-json/single_include")
+    message(STATUS "nlohmann/json: vendored copy")
 else()
-    find_package(nlohmann_json REQUIRED)
-    set(JSON_INCLUDE_DIR "")
+    find_package(nlohmann_json QUIET)
+    if(NOT nlohmann_json_FOUND)
+        message(STATUS "nlohmann/json: downloading via FetchContent")
+        FetchContent_Declare(nlohmann_json
+            URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+        )
+        set(JSON_BuildTests OFF CACHE INTERNAL "")
+        FetchContent_MakeAvailable(nlohmann_json)
+    else()
+        message(STATUS "nlohmann/json: system package")
+    endif()
 endif()
 
-# QtKeychain — optional, but strongly recommended for secure credential storage
+# QtKeychain — optional, strongly recommended
 find_package(Qt6Keychain QUIET)
 if(NOT Qt6Keychain_FOUND)
     find_package(qtkeychain QUIET)
@@ -32,7 +41,6 @@ endif()
 
 set(SOURCES
     src/main.cpp
-    src/util/util-curl.cpp
     src/api/wp-auth.cpp
     src/api/wp-client.cpp
     src/ui/main-window.cpp
@@ -43,50 +51,61 @@ set(SOURCES
     src/ui/camera-capture.cpp
 )
 
-# ---- Platform-specific ----
-if(ANDROID)
-    # Qt for Android: package as APK/AAB
+qt_add_executable(wp-desktop-client ${SOURCES})
+
+# ---- macOS bundle ----
+if(APPLE AND NOT IOS)
     set_target_properties(wp-desktop-client PROPERTIES
-        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
-        QT_ANDROID_VERSION_NAME       "${PROJECT_VERSION}"
-        QT_ANDROID_VERSION_CODE       "1"
-        QT_ANDROID_MIN_SDK_VERSION    "26"
-        QT_ANDROID_TARGET_SDK_VERSION "34"
-    )
-elseif(IOS)
-    set_target_properties(wp-desktop-client PROPERTIES
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
-        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone + iPad
+        MACOSX_BUNDLE                   TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME       "WordPress Desktop"
+        MACOSX_BUNDLE_BUNDLE_VERSION    "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER    "com.wpdesktop.client"
     )
 endif()
 
-add_executable(wp-desktop-client ${SOURCES})
+# ---- Android APK ----
+if(ANDROID)
+    set_target_properties(wp-desktop-client PROPERTIES
+        QT_ANDROID_PACKAGE_SOURCE_DIR   "${CMAKE_CURRENT_SOURCE_DIR}/android"
+        QT_ANDROID_VERSION_NAME         "${PROJECT_VERSION}"
+        QT_ANDROID_VERSION_CODE         "1"
+        QT_ANDROID_MIN_SDK_VERSION      "26"
+        QT_ANDROID_TARGET_SDK_VERSION   "34"
+    )
+endif()
 
-target_include_directories(wp-desktop-client PRIVATE
-    src
-    ${JSON_INCLUDE_DIR}
-    ${CURL_INCLUDE_DIRS}
-)
+# ---- iOS bundle ----
+if(IOS)
+    set_target_properties(wp-desktop-client PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST           "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_SKIP_INSTALL       NO
+    )
+endif()
+
+target_include_directories(wp-desktop-client PRIVATE src)
 
 target_link_libraries(wp-desktop-client PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::Network
     Qt6::Multimedia
     Qt6::MultimediaWidgets
-    ${CURL_LIBRARIES}
+    nlohmann_json
 )
 
 if(TARGET Qt6Keychain::Qt6Keychain)
     target_link_libraries(wp-desktop-client PRIVATE Qt6Keychain::Qt6Keychain)
     target_compile_definitions(wp-desktop-client PRIVATE HAS_QTKEYCHAIN)
-    message(STATUS "QtKeychain found — credentials stored in system keychain")
+    message(STATUS "QtKeychain: system keychain enabled")
 elseif(TARGET qtkeychain::Qt6Keychain)
     target_link_libraries(wp-desktop-client PRIVATE qtkeychain::Qt6Keychain)
     target_compile_definitions(wp-desktop-client PRIVATE HAS_QTKEYCHAIN)
-    message(STATUS "QtKeychain found — credentials stored in system keychain")
+    message(STATUS "QtKeychain: system keychain enabled")
 else()
-    message(WARNING "QtKeychain NOT found — credentials will be stored insecurely. Install qt6keychain for secure storage.")
+    message(WARNING "QtKeychain NOT found — install qt6keychain for secure credential storage.")
 endif()
 
 if(MSVC)
