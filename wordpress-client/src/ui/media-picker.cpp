@@ -1,8 +1,10 @@
 #include "media-picker.hpp"
+#include "camera-capture.hpp"
 
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
+#include <QMediaDevices>
 #include <QMessageBox>
 #include <QVBoxLayout>
 
@@ -29,21 +31,28 @@ MediaPicker::MediaPicker(QWidget* parent) : QWidget(parent)
     _status->setStyleSheet("color: gray;");
     layout->addWidget(_status);
 
-    auto* btn_row   = new QHBoxLayout;
-    _upload_btn     = new QPushButton("Upload File...");
-    _insert_btn     = new QPushButton("Insert Selected");
-    _more_btn       = new QPushButton("Load more...");
+    auto* btn_row  = new QHBoxLayout;
+    _upload_btn    = new QPushButton("Upload File...");
+    _camera_btn    = new QPushButton("Take Photo");
+    _insert_btn    = new QPushButton("Insert Selected");
+    _more_btn      = new QPushButton("Load more...");
     _insert_btn->setEnabled(false);
     _more_btn->setVisible(false);
+
+    // Hide camera button on platforms with no cameras
+    _camera_btn->setVisible(!QMediaDevices::videoInputs().isEmpty());
+
     btn_row->addWidget(_upload_btn);
+    btn_row->addWidget(_camera_btn);
     btn_row->addStretch();
     btn_row->addWidget(_more_btn);
     btn_row->addWidget(_insert_btn);
     layout->addLayout(btn_row);
 
-    connect(_upload_btn, &QPushButton::clicked,         this, &MediaPicker::onUpload);
-    connect(_insert_btn, &QPushButton::clicked,         this, &MediaPicker::onInsert);
-    connect(_more_btn,   &QPushButton::clicked,         this, &MediaPicker::onLoadMore);
+    connect(_upload_btn, &QPushButton::clicked,           this, &MediaPicker::onUpload);
+    connect(_camera_btn, &QPushButton::clicked,           this, &MediaPicker::onCamera);
+    connect(_insert_btn, &QPushButton::clicked,           this, &MediaPicker::onInsert);
+    connect(_more_btn,   &QPushButton::clicked,           this, &MediaPicker::onLoadMore);
     connect(_list,       &QListWidget::itemDoubleClicked, this, &MediaPicker::onItemDoubleClicked);
     connect(_list,       &QListWidget::itemSelectionChanged, this, [this]() {
         _insert_btn->setEnabled(!_list->selectedItems().isEmpty());
@@ -104,7 +113,6 @@ void MediaPicker::appendMedia(const std::vector<WpMedia>& items)
     for (const auto& m : items) {
         auto* item = new QListWidgetItem(QString::fromStdString(m.filename));
         item->setData(Qt::UserRole, static_cast<qlonglong>(_items.size()));
-        // Show MIME icon placeholder — a real impl would fetch thumbnails asynchronously
         item->setToolTip(QString("%1\n%2 × %3\n%4")
             .arg(QString::fromStdString(m.url))
             .arg(m.width).arg(m.height)
@@ -124,6 +132,26 @@ void MediaPicker::onUpload()
         "Images (*.png *.jpg *.jpeg *.gif *.webp);;Videos (*.mp4 *.mov *.webm);;All files (*)");
 
     if (path.isEmpty())
+        return;
+
+    uploadFile(path);
+}
+
+void MediaPicker::onCamera()
+{
+    auto* cam = new CameraCapture(this);
+    connect(cam, &CameraCapture::photoCaptured, this, &MediaPicker::onPhotoReady);
+    cam->exec();
+}
+
+void MediaPicker::onPhotoReady(const QString& path)
+{
+    uploadFile(path);
+}
+
+void MediaPicker::uploadFile(const QString& path)
+{
+    if (!_client || path.isEmpty())
         return;
 
     setBusy(true);
@@ -162,6 +190,7 @@ void MediaPicker::setBusy(bool busy)
 {
     _progress->setVisible(busy);
     _upload_btn->setEnabled(!busy);
+    _camera_btn->setEnabled(!busy);
     _more_btn->setEnabled(!busy);
     _list->setEnabled(!busy);
 }

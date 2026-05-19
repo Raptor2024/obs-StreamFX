@@ -5,30 +5,33 @@
 #include "media-picker.hpp"
 
 #include <QApplication>
-#include <QDockWidget>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QResizeEvent>
+#include <QScreen>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QWidget>
-#include <QUuid>
 
 namespace wpclient {
+
+// Screens narrower than this (logical pixels) switch to mobile layout
+static constexpr int MOBILE_BREAKPOINT = 600;
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , _settings("wp-desktop-client", "app")
 {
     setWindowTitle("WordPress Desktop Client");
-    setMinimumSize(900, 600);
+    setMinimumSize(320, 480);
 
-    // ---- Sidebar ----
-    auto* sidebar = new QWidget;
-    auto* sbl     = new QVBoxLayout(sidebar);
+    // ---- Desktop sidebar ----
+    _sidebar = new QWidget;
+    auto* sbl = new QVBoxLayout(_sidebar);
     sbl->setContentsMargins(8, 8, 8, 8);
     sbl->setSpacing(6);
-    sidebar->setFixedWidth(180);
+    _sidebar->setFixedWidth(180);
 
     _site_combo = new QComboBox;
     _posts_btn  = new QPushButton("Posts");
@@ -46,7 +49,6 @@ MainWindow::MainWindow(QWidget* parent)
         btn->setStyleSheet("QPushButton { text-align: left; padding: 6px; border-radius: 4px; }"
                            "QPushButton:checked { background: palette(highlight); color: palette(highlighted-text); }");
     }
-    _new_btn->setDefault(true);
 
     sbl->addWidget(_site_combo);
     sbl->addSpacing(8);
@@ -59,47 +61,129 @@ MainWindow::MainWindow(QWidget* parent)
     sbl->addWidget(_status_lbl);
     sbl->addWidget(_sites_btn);
 
+    // ---- Mobile bottom tab bar ----
+    _tab_bar = new QWidget;
+    _tab_bar->setStyleSheet("background: palette(window); border-top: 1px solid palette(mid);");
+    auto* tab_layout = new QHBoxLayout(_tab_bar);
+    tab_layout->setContentsMargins(0, 0, 0, 0);
+    tab_layout->setSpacing(0);
+
+    auto make_tab = [](const QString& icon, const QString& label) {
+        auto* btn = new QPushButton(icon + "\n" + label);
+        btn->setCheckable(true);
+        btn->setFlat(true);
+        btn->setStyleSheet(
+            "QPushButton { padding: 8px 4px; border-radius: 0; font-size: 10px; }"
+            "QPushButton:checked { color: palette(highlight); }");
+        return btn;
+    };
+
+    _tab_posts_btn  = make_tab("📝", "Posts");
+    _tab_drafts_btn = make_tab("📄", "Drafts");
+    _tab_new_btn    = make_tab("＋", "New");
+    _tab_media_btn  = make_tab("🖼", "Media");
+    _tab_sites_btn  = make_tab("⚙", "Sites");
+
+    tab_layout->addWidget(_tab_posts_btn);
+    tab_layout->addWidget(_tab_drafts_btn);
+    tab_layout->addWidget(_tab_new_btn);
+    tab_layout->addWidget(_tab_media_btn);
+    tab_layout->addWidget(_tab_sites_btn);
+
+    // Mobile site selector (appears above tab bar)
+    _tab_site_combo = new QComboBox;
+
     // ---- Central stack ----
     _post_list  = new PostList;
     _editor     = new PostEditor;
     _media_page = new MediaPicker;
 
     _stack = new QStackedWidget;
-    _stack->addWidget(_post_list);   // index 0
-    _stack->addWidget(_editor);      // index 1
-    _stack->addWidget(_media_page);  // index 2
+    _stack->addWidget(_post_list);   // 0
+    _stack->addWidget(_editor);      // 1
+    _stack->addWidget(_media_page);  // 2
 
-    // ---- Splitter ----
+    // ---- Splitter (desktop) ----
     auto* splitter = new QSplitter(Qt::Horizontal);
-    splitter->addWidget(sidebar);
+    splitter->addWidget(_sidebar);
     splitter->addWidget(_stack);
     splitter->setStretchFactor(0, 0);
     splitter->setStretchFactor(1, 1);
     splitter->setChildrenCollapsible(false);
-    setCentralWidget(splitter);
 
-    // ---- Status bar ----
+    // ---- Root layout ----
+    auto* root     = new QWidget;
+    auto* root_vl  = new QVBoxLayout(root);
+    root_vl->setContentsMargins(0, 0, 0, 0);
+    root_vl->setSpacing(0);
+    root_vl->addWidget(_tab_site_combo); // hidden on desktop
+    root_vl->addWidget(splitter, 1);
+    root_vl->addWidget(_tab_bar);        // hidden on desktop
+    setCentralWidget(root);
+
     statusBar()->showMessage("Ready");
 
-    // ---- Connections ----
+    // ---- Connections: desktop sidebar ----
     connect(_site_combo,  QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onSiteChanged);
     connect(_posts_btn,   &QPushButton::clicked, this, &MainWindow::onShowPosts);
     connect(_drafts_btn,  &QPushButton::clicked, this, &MainWindow::onShowDrafts);
     connect(_media_btn,   &QPushButton::clicked, this, &MainWindow::onShowMedia);
     connect(_new_btn,     &QPushButton::clicked, this, &MainWindow::onNewPost);
     connect(_sites_btn,   &QPushButton::clicked, this, &MainWindow::onManageSites);
-    connect(_post_list,   &PostList::editRequested, this, &MainWindow::onEditPost);
-    connect(_editor,      &PostEditor::saved,   this, &MainWindow::onPostSaved);
-    connect(_editor,      &PostEditor::closed,  this, &MainWindow::onEditorClosed);
+
+    // ---- Connections: mobile tab bar ----
+    connect(_tab_site_combo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onSiteChanged);
+    connect(_tab_posts_btn,  &QPushButton::clicked, this, &MainWindow::onShowPosts);
+    connect(_tab_drafts_btn, &QPushButton::clicked, this, &MainWindow::onShowDrafts);
+    connect(_tab_new_btn,    &QPushButton::clicked, this, &MainWindow::onNewPost);
+    connect(_tab_media_btn,  &QPushButton::clicked, this, &MainWindow::onShowMedia);
+    connect(_tab_sites_btn,  &QPushButton::clicked, this, &MainWindow::onManageSites);
+
+    // ---- Connections: content widgets ----
+    connect(_post_list,   &PostList::editRequested,    this, &MainWindow::onEditPost);
+    connect(_editor,      &PostEditor::saved,          this, &MainWindow::onPostSaved);
+    connect(_editor,      &PostEditor::closed,         this, &MainWindow::onEditorClosed);
     connect(_media_page,  &MediaPicker::mediaSelected, this, &MainWindow::onMediaInsert);
 
     loadSites();
     _posts_btn->setChecked(true);
+    _tab_posts_btn->setChecked(true);
+    applyLayout();
 }
 
 MainWindow::~MainWindow()
 {
     saveSites();
+}
+
+bool MainWindow::isMobileLayout() const
+{
+    return width() < MOBILE_BREAKPOINT;
+}
+
+void MainWindow::applyLayout()
+{
+    bool mobile = isMobileLayout();
+    _sidebar->setVisible(!mobile);
+    _tab_bar->setVisible(mobile);
+    _tab_site_combo->setVisible(mobile);
+
+    // Keep both combos in sync
+    auto sync_combo = [&](QComboBox* src, QComboBox* dst) {
+        dst->blockSignals(true);
+        dst->clear();
+        for (int i = 0; i < src->count(); ++i)
+            dst->addItem(src->itemText(i));
+        dst->setCurrentIndex(src->currentIndex());
+        dst->blockSignals(false);
+    };
+    sync_combo(_site_combo, _tab_site_combo);
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    QMainWindow::resizeEvent(event);
+    applyLayout();
 }
 
 void MainWindow::loadSites()
@@ -119,22 +203,24 @@ void MainWindow::loadSites()
     }
     _settings.endGroup();
 
-    _site_combo->blockSignals(true);
-    _site_combo->clear();
-    for (const auto& s : _sites)
-        _site_combo->addItem(QString::fromStdString(s.name));
-    _site_combo->blockSignals(false);
+    for (auto* combo : {_site_combo, _tab_site_combo}) {
+        combo->blockSignals(true);
+        combo->clear();
+        for (const auto& s : _sites)
+            combo->addItem(QString::fromStdString(s.name));
+        combo->blockSignals(false);
+    }
 
     if (!_sites.empty())
         applyCurrentSite();
     else
-        setStatus("No sites configured.\nUse \"Manage Sites\" to add one.");
+        setStatus("No sites configured.");
 }
 
 void MainWindow::saveSites()
 {
     _settings.beginGroup("sites");
-    _settings.remove(""); // clear all children
+    _settings.remove("");
     for (const auto& s : _sites) {
         _settings.beginGroup(QString::fromStdString(s.id));
         _settings.setValue("name",     QString::fromStdString(s.name));
@@ -182,32 +268,44 @@ void MainWindow::onManageSites()
 
 void MainWindow::onSiteChanged(int)
 {
+    // Keep both combos in sync with whichever fired
+    auto* src = qobject_cast<QComboBox*>(sender());
+    auto* dst = (src == _site_combo) ? _tab_site_combo : _site_combo;
+    if (dst) {
+        dst->blockSignals(true);
+        dst->setCurrentIndex(src->currentIndex());
+        dst->blockSignals(false);
+    }
     applyCurrentSite();
+}
+
+static void setTabChecked(QPushButton* p, QPushButton* d, QPushButton* m, QPushButton* active)
+{
+    p->setChecked(active == p);
+    d->setChecked(active == d);
+    m->setChecked(active == m);
 }
 
 void MainWindow::onShowPosts()
 {
-    _posts_btn->setChecked(true);
-    _drafts_btn->setChecked(false);
-    _media_btn->setChecked(false);
+    _posts_btn->setChecked(true);  _drafts_btn->setChecked(false); _media_btn->setChecked(false);
+    setTabChecked(_tab_posts_btn, _tab_drafts_btn, _tab_media_btn, _tab_posts_btn);
     _stack->setCurrentWidget(_post_list);
     _post_list->loadPosts("publish");
 }
 
 void MainWindow::onShowDrafts()
 {
-    _posts_btn->setChecked(false);
-    _drafts_btn->setChecked(true);
-    _media_btn->setChecked(false);
+    _posts_btn->setChecked(false); _drafts_btn->setChecked(true);  _media_btn->setChecked(false);
+    setTabChecked(_tab_posts_btn, _tab_drafts_btn, _tab_media_btn, _tab_drafts_btn);
     _stack->setCurrentWidget(_post_list);
     _post_list->loadPosts("draft");
 }
 
 void MainWindow::onShowMedia()
 {
-    _posts_btn->setChecked(false);
-    _drafts_btn->setChecked(false);
-    _media_btn->setChecked(true);
+    _posts_btn->setChecked(false); _drafts_btn->setChecked(false); _media_btn->setChecked(true);
+    setTabChecked(_tab_posts_btn, _tab_drafts_btn, _tab_media_btn, _tab_media_btn);
     _stack->setCurrentWidget(_media_page);
     _media_page->load();
 }
@@ -232,7 +330,6 @@ void MainWindow::onPostSaved(const WpPost& post)
 
 void MainWindow::onEditorClosed()
 {
-    // Return to whichever list was active
     if (_drafts_btn->isChecked())
         onShowDrafts();
     else
@@ -241,7 +338,6 @@ void MainWindow::onEditorClosed()
 
 void MainWindow::onMediaInsert(const WpMedia& media)
 {
-    // If editor is open, forward the selection; otherwise just switch to editor
     if (_stack->currentWidget() == _editor)
         _editor->insertMedia(media);
     else

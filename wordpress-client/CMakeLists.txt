@@ -9,7 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Multimedia MultimediaWidgets)
 find_package(CURL REQUIRED)
 
 # nlohmann/json: prefer vendored copy from parent repo, else find installed
@@ -40,7 +40,25 @@ set(SOURCES
     src/ui/post-list.cpp
     src/ui/post-editor.cpp
     src/ui/media-picker.cpp
+    src/ui/camera-capture.cpp
 )
+
+# ---- Platform-specific ----
+if(ANDROID)
+    # Qt for Android: package as APK/AAB
+    set_target_properties(wp-desktop-client PROPERTIES
+        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
+        QT_ANDROID_VERSION_NAME       "${PROJECT_VERSION}"
+        QT_ANDROID_VERSION_CODE       "1"
+        QT_ANDROID_MIN_SDK_VERSION    "26"
+        QT_ANDROID_TARGET_SDK_VERSION "34"
+    )
+elseif(IOS)
+    set_target_properties(wp-desktop-client PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2" # iPhone + iPad
+    )
+endif()
 
 add_executable(wp-desktop-client ${SOURCES})
 
@@ -54,6 +72,8 @@ target_link_libraries(wp-desktop-client PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::Multimedia
+    Qt6::MultimediaWidgets
     ${CURL_LIBRARIES}
 )
 
