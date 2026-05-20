@@ -31,6 +31,7 @@ PostList::PostList(QWidget* parent) : QWidget(parent)
     _empty_lbl->setVisible(false);
 
     _load_more = new QPushButton("Load more...");
+    _load_more->setObjectName("load-more-btn");
     _load_more->setVisible(false);
 
     layout->addWidget(_table);

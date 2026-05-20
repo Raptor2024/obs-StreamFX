@@ -30,6 +30,7 @@ PostEditor::PostEditor(QWidget* parent) : QWidget(parent)
     _toolbar->addAction("Link",  this, &PostEditor::onLink);
     _toolbar->addSeparator();
     _media_btn = new QPushButton("Insert Media");
+    _media_btn->setObjectName("insert-media-btn");
     _toolbar->addWidget(_media_btn);
 
     QFont bf = bold_act->font();      bf.setBold(true);      bold_act->setFont(bf);
@@ -40,8 +41,8 @@ PostEditor::PostEditor(QWidget* parent) : QWidget(parent)
 
     // ---- Title ----
     _title_le = new QLineEdit;
+    _title_le->setObjectName("post-title");
     _title_le->setPlaceholderText("Post title");
-    _title_le->setStyleSheet("font-size: 18px; padding: 6px;");
     main_layout->addWidget(_title_le);
 
     // ---- Editor + sidebar splitter ----
@@ -95,9 +96,12 @@ PostEditor::PostEditor(QWidget* parent) : QWidget(parent)
 
     // ---- Buttons ----
     auto* btn_row   = new QHBoxLayout;
-    _draft_btn      = new QPushButton("Save Draft");
-    _publish_btn    = new QPushButton("Publish");
-    _close_btn      = new QPushButton("Close");
+    _draft_btn   = new QPushButton("Save Draft");
+    _publish_btn = new QPushButton("Publish");
+    _close_btn   = new QPushButton("Close");
+    _draft_btn->setObjectName("draft-btn");
+    _publish_btn->setObjectName("publish-btn");
+    _close_btn->setObjectName("close-btn");
     _publish_btn->setDefault(true);
     btn_row->addWidget(_close_btn);
     btn_row->addStretch();

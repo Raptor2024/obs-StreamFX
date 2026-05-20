@@ -23,33 +23,43 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , _settings("wp-desktop-client", "app")
 {
-    setWindowTitle("WordPress Desktop Client");
+    setWindowTitle("WordPress Desktop");
     setMinimumSize(320, 480);
 
     // ---- Desktop sidebar ----
     _sidebar = new QWidget;
+    _sidebar->setObjectName("sidebar");
+    _sidebar->setAutoFillBackground(true);
     auto* sbl = new QVBoxLayout(_sidebar);
-    sbl->setContentsMargins(8, 8, 8, 8);
-    sbl->setSpacing(6);
-    _sidebar->setFixedWidth(180);
+    sbl->setContentsMargins(10, 10, 10, 10);
+    sbl->setSpacing(4);
+    _sidebar->setFixedWidth(190);
+
+    auto* logo_lbl = new QLabel("WordPress");
+    logo_lbl->setObjectName("sidebar-logo");
+    logo_lbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
 
     _site_combo = new QComboBox;
+    _site_combo->setObjectName("site-combo");
     _posts_btn  = new QPushButton("Posts");
     _drafts_btn = new QPushButton("Drafts");
     _media_btn  = new QPushButton("Media");
     _new_btn    = new QPushButton("+ New Post");
     _sites_btn  = new QPushButton("Manage Sites...");
     _status_lbl = new QLabel;
+    _status_lbl->setObjectName("site-status");
     _status_lbl->setWordWrap(true);
-    _status_lbl->setStyleSheet("color: gray; font-size: 11px;");
 
     for (auto* btn : {_posts_btn, _drafts_btn, _media_btn}) {
+        btn->setObjectName("nav-btn");
         btn->setCheckable(true);
         btn->setFlat(true);
-        btn->setStyleSheet("QPushButton { text-align: left; padding: 6px; border-radius: 4px; }"
-                           "QPushButton:checked { background: palette(highlight); color: palette(highlighted-text); }");
     }
+    _new_btn->setObjectName("new-post-btn");
+    _sites_btn->setObjectName("manage-sites-btn");
 
+    sbl->addWidget(logo_lbl);
+    sbl->addSpacing(6);
     sbl->addWidget(_site_combo);
     sbl->addSpacing(8);
     sbl->addWidget(_new_btn);
@@ -63,18 +73,17 @@ MainWindow::MainWindow(QWidget* parent)
 
     // ---- Mobile bottom tab bar ----
     _tab_bar = new QWidget;
-    _tab_bar->setStyleSheet("background: palette(window); border-top: 1px solid palette(mid);");
+    _tab_bar->setObjectName("tab-bar");
+    _tab_bar->setAutoFillBackground(true);
     auto* tab_layout = new QHBoxLayout(_tab_bar);
     tab_layout->setContentsMargins(0, 0, 0, 0);
     tab_layout->setSpacing(0);
 
     auto make_tab = [](const QString& icon, const QString& label) {
         auto* btn = new QPushButton(icon + "\n" + label);
+        btn->setObjectName("tab-btn");
         btn->setCheckable(true);
         btn->setFlat(true);
-        btn->setStyleSheet(
-            "QPushButton { padding: 8px 4px; border-radius: 0; font-size: 10px; }"
-            "QPushButton:checked { color: palette(highlight); }");
         return btn;
     };
 
