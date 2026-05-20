@@ -8,6 +8,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QNetworkAccessManager>
 #include <QPushButton>
 #include <QSplitter>
 #include <QTextEdit>
@@ -46,9 +47,10 @@ namespace wpclient {
         void submitPost(const std::string& status);
         void applyPost(const WpPost& post);
 
-        WpClient* _client  = nullptr;
-        WpPost    _current;
-        bool      _is_new  = true;
+        WpClient*            _client  = nullptr;
+        WpPost               _current;
+        bool                 _is_new  = true;
+        QNetworkAccessManager _nam;
 
         // Toolbar
         QToolBar*   _toolbar    = nullptr;

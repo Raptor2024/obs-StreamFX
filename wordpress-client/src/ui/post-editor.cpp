@@ -7,6 +7,9 @@
 #include <QInputDialog>
 #include <QLabel>
 #include <QMessageBox>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPixmap>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QTextCursor>
@@ -162,10 +165,25 @@ void PostEditor::openPost(const WpPost& post)
 
 void PostEditor::insertMedia(const WpMedia& media)
 {
-    QString img_tag = QString("<img src=\"%1\" alt=\"%2\" />")
-        .arg(QString::fromStdString(media.url))
-        .arg(QString::fromStdString(media.alt_text));
-    _content->textCursor().insertHtml(img_tag);
+    QString url_str = QString::fromStdString(media.url);
+    QString alt     = QString::fromStdString(media.alt_text);
+
+    // Pre-fetch the image so QTextEdit can render it — Qt's QTextDocument
+    // doesn't resolve http(s) resources on its own.
+    auto* reply = _nam.get(QNetworkRequest(QUrl(url_str)));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url_str, alt]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            QPixmap pm;
+            if (pm.loadFromData(reply->readAll()))
+                _content->document()->addResource(
+                    QTextDocument::ImageResource, QUrl(url_str), QVariant(pm));
+        }
+        // Insert after resource is registered so loadResource() finds it immediately
+        _content->textCursor().insertHtml(
+            QString("<img src=\"%1\" alt=\"%2\" />")
+                .arg(url_str.toHtmlEscaped(), alt.toHtmlEscaped()));
+    });
 }
 
 void PostEditor::populateTaxonomy()
@@ -294,6 +312,7 @@ void PostEditor::onInsertMediaClicked()
     picker->setWindowFlags(Qt::Dialog);
     picker->setAttribute(Qt::WA_DeleteOnClose);
     connect(picker, &MediaPicker::mediaSelected, this, &PostEditor::insertMedia);
+    connect(picker, &MediaPicker::mediaSelected, picker, &QWidget::close);
     picker->load();
     picker->show();
 }
