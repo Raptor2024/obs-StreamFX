@@ -1,0 +1,135 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: ['claude/wordpress-desktop-app-jiEaE', 'main']
+    paths: ['wordpress-client/**', '.github/workflows/build-android.yml']
+  workflow_dispatch:
+
+env:
+  QT_VERSION: '6.6.3'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-android:
+    name: Android arm64-v8a
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Prepare Android SDK and NDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "Using SDK root: $SDK"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+          SDKM=$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+          if [ -z "$SDKM" ]; then
+            echo "ERROR: sdkmanager not found. SDK layout:"; ls "$SDK" || true; exit 1
+          fi
+
+          # Accept licenses once up-front
+          yes | "$SDKM" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
+
+          # Install android-33 (full platform, valid android.jar, within AGP 7.4.1
+          # tested range). androiddeployqt auto-selects the numerically highest
+          # platform, so we must ensure android-33 is the only available option.
+          "$SDKM" --sdk_root="$SDK" "platforms;android-33"
+
+          # Remove every platform with API level > 33 (both full platforms like
+          # android-37 and extension SDKs like android-36-ext19). Their android.jar
+          # is either broken or causes AGP 7.4.1 lint dependency resolution to fail.
+          echo "Platforms before cleanup:"; ls "$SDK/platforms/"
+          find "$SDK/platforms" -maxdepth 1 -mindepth 1 -type d | while read -r dir; do
+            name=$(basename "$dir")
+            # Extract the leading API number (handles both android-37 and android-36-ext19)
+            api=$(echo "$name" | grep -oP '(?<=android-)\d+' | head -1)
+            if [ -n "$api" ] && [ "$api" -gt 33 ]; then
+              echo "  Removing $name (API $api > 33)"
+              rm -rf "$dir"
+            fi
+          done
+          echo "Platforms after cleanup:"; ls "$SDK/platforms/"
+
+          # Locate the highest available NDK
+          NDK=$(find "$SDK/ndk" -maxdepth 1 -mindepth 1 -type d 2>/dev/null \
+                | sort -V | tail -1)
+          if [ -z "$NDK" ]; then
+            "$SDKM" --sdk_root="$SDK" "ndk;25.2.9519653"
+            NDK="$SDK/ndk/25.2.9519653"
+          fi
+          echo "Using NDK: $NDK"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+
+      # Step 1 — host Qt (provides moc / rcc / uic used during cross-compilation)
+      - name: Install Qt — host (Linux desktop)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: gcc_64
+          dir: ${{ runner.temp }}/Qt
+          cache: false
+
+      # Step 2 — Android target Qt (arm64-v8a libraries)
+      - name: Install Qt — Android arm64-v8a
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: android
+          arch: android_arm64_v8a
+          modules: qtmultimedia
+          dir: ${{ runner.temp }}/Qt
+          cache: false
+
+      - name: Configure CMake for Android
+        run: |
+          # Build Qt paths from the known install layout — same approach as iOS workflow.
+          # jurplel/install-qt-action installs to $dir/Qt/$version/$arch/
+          QT_BASE="${{ runner.temp }}/Qt/Qt/${{ env.QT_VERSION }}"
+          QT_HOST="$QT_BASE/gcc_64"
+          QT_TOOLCHAIN="$QT_BASE/android_arm64_v8a/lib/cmake/Qt6/qt.toolchain.cmake"
+
+          echo "QT_HOST:      $QT_HOST"
+          echo "QT_TOOLCHAIN: $QT_TOOLCHAIN"
+          echo "ANDROID_SDK:  $ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK:  $ANDROID_NDK_ROOT"
+
+          cmake -S wordpress-client -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$QT_TOOLCHAIN" \
+            -DQT_HOST_PATH="$QT_HOST" \
+            -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
+            -DANDROID_NDK_ROOT="$ANDROID_NDK_ROOT" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build APK
+        run: cmake --build build --target apk --parallel
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          # Debug APKs are auto-signed by AGP with the debug keystore — no manual
+          # signing step needed. Find the debug APK specifically.
+          APK=$(find build -name "*-debug.apk" -o -name "*debug*.apk" | head -1)
+          # Fallback: any apk
+          [ -z "$APK" ] && APK=$(find build -name "*.apk" | head -1)
+          echo "Found APK: $APK  ($(du -sh "$APK" | cut -f1))"
+          cp "$APK" dist/WPDesktop-Android.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WPDesktop-Android
+          path: dist/WPDesktop-Android.apk
+          retention-days: 30
