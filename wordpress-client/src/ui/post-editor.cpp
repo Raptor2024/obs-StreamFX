@@ -181,7 +181,7 @@ void PostEditor::insertMedia(const WpMedia& media)
         }
         // Insert after resource is registered so loadResource() finds it immediately
         _content->textCursor().insertHtml(
-            QString("<img src=\"%1\" alt=\"%2\" />")
+            QString("<p><img src=\"%1\" alt=\"%2\" style=\"max-width:100%;height:auto;display:block;\" /></p>")
                 .arg(url_str.toHtmlEscaped(), alt.toHtmlEscaped()));
     });
 }
