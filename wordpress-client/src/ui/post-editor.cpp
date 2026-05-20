@@ -10,6 +10,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPixmap>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSplitter>
 #include <QTextCursor>
@@ -168,21 +169,28 @@ void PostEditor::insertMedia(const WpMedia& media)
     QString url_str = QString::fromStdString(media.url);
     QString alt     = QString::fromStdString(media.alt_text);
 
-    // Pre-fetch the image so QTextEdit can render it — Qt's QTextDocument
-    // doesn't resolve http(s) resources on its own.
     auto* reply = _nam.get(QNetworkRequest(QUrl(url_str)));
     connect(reply, &QNetworkReply::finished, this, [this, reply, url_str, alt]() {
         reply->deleteLater();
+
         if (reply->error() == QNetworkReply::NoError) {
             QPixmap pm;
             if (pm.loadFromData(reply->readAll()))
                 _content->document()->addResource(
                     QTextDocument::ImageResource, QUrl(url_str), QVariant(pm));
         }
-        // Insert after resource is registered so loadResource() finds it immediately
-        _content->textCursor().insertHtml(
-            QString("<p><img src=\"%1\" alt=\"%2\" style=\"max-width:100%;height:auto;display:block;\" /></p>")
+
+        // Use insertBlock() to guarantee the image lands in its own paragraph.
+        // insertHtml("<p><img/></p>") at a mid-paragraph cursor position can
+        // merge the img inline with surrounding text in Qt's document model.
+        QTextCursor cursor = _content->textCursor();
+        cursor.movePosition(QTextCursor::EndOfBlock);
+        cursor.insertBlock();
+        cursor.insertHtml(
+            QString("<img src=\"%1\" alt=\"%2\" style=\"max-width:100%;height:auto;\"/>")
                 .arg(url_str.toHtmlEscaped(), alt.toHtmlEscaped()));
+        cursor.insertBlock();
+        _content->setTextCursor(cursor);
     });
 }
 
@@ -233,6 +241,11 @@ void PostEditor::submitPost(const std::string& status)
             int end = full.lastIndexOf("</body>");
             full = (end != -1) ? full.mid(start, end - start).trimmed() : full;
         }
+        // Qt sets margin-bottom:0px on every paragraph; strip it so WordPress
+        // themes render normal spacing between the image block and the next paragraph.
+        full.replace("margin-bottom:0px;", "");
+        // Remove Qt-specific style properties that mean nothing to browsers.
+        full.replace(QRegularExpression(R"(\s*-qt-[^;]+;)"), "");
         p.content = full.toStdString();
     }
     p.status     = status;
