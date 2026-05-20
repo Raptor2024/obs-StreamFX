@@ -221,7 +221,20 @@ void PostEditor::submitPost(const std::string& status)
 
     WpPost p     = _current;
     p.title      = _title_le->text().trimmed().toStdString();
-    p.content    = _content->toHtml().toStdString();
+
+    // QTextEdit::toHtml() wraps content in a full HTML document including a
+    // <head><style> block with Qt's internal styles. WordPress would store
+    // those CSS rules as visible text in the post. Extract only the body.
+    {
+        QString full = _content->toHtml();
+        int start = full.indexOf("<body");
+        if (start != -1) {
+            start = full.indexOf('>', start) + 1;
+            int end = full.lastIndexOf("</body>");
+            full = (end != -1) ? full.mid(start, end - start).trimmed() : full;
+        }
+        p.content = full.toStdString();
+    }
     p.status     = status;
     p.date       = _date_edit->dateTime().toString(Qt::ISODate).toStdString();
 
